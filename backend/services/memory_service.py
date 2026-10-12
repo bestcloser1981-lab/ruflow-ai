@@ -70,11 +70,43 @@ class MongoMemoryClient:
         try:
             await self._client.admin.command("ping")
             self._verified = True
+            await self._ensure_indexes()
             logger.info("MongoDB connected: %s / %s", cfg.mongodb_uri, cfg.mongodb_db_name)
         except (ConnectionFailure, ServerSelectionTimeoutError) as exc:
             self._client = None
             self._db = None
             raise RuntimeError(f"Cannot connect to MongoDB at {cfg.mongodb_uri}: {exc}") from exc
+
+    async def _ensure_indexes(self) -> None:
+        """Create the database indexes used by the hot-path read queries."""
+        if not self._db:
+            return
+
+        await self._applications.create_index(
+            [("session_id", 1), ("timestamp", -1)],
+            name="session_history_idx",
+        )
+        await self._applications.create_index(
+            [("user_id", 1), ("timestamp", -1)],
+            name="user_history_idx",
+        )
+        await self._applications.create_index(
+            [("company", 1), ("timestamp", -1)],
+            name="company_history_idx",
+        )
+        await self._applications.create_index(
+            [("jd_role", 1), ("timestamp", -1)],
+            name="role_history_idx",
+        )
+        await self._applications.create_index(
+            [("timestamp", -1)],
+            name="recent_applications_idx",
+        )
+        await self._sessions.create_index(
+            [("session_id", 1)],
+            unique=True,
+            name="session_lookup_idx",
+        )
 
     @property
     def _applications(self) -> motor.AsyncIOMotorCollection:
