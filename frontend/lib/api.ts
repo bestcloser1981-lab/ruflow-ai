@@ -10,8 +10,27 @@ const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
 
 const GET_CACHE_TTL_MS = 5_000;
+const GET_CACHE_MAX_ENTRIES = 128;
 const GET_CACHE = new Map<string, { expiresAt: number; value: unknown }>();
 const IN_FLIGHT_GETS = new Map<string, Promise<unknown>>();
+
+function pruneExpiredGetCache() {
+  const now = Date.now();
+  for (const [url, entry] of GET_CACHE.entries()) {
+    if (entry.expiresAt <= now) {
+      GET_CACHE.delete(url);
+    }
+  }
+}
+
+function pruneGetCache() {
+  pruneExpiredGetCache();
+  while (GET_CACHE.size > GET_CACHE_MAX_ENTRIES) {
+    const oldestKey = GET_CACHE.keys().next().value;
+    if (oldestKey === undefined) break;
+    GET_CACHE.delete(oldestKey);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Generic fetch wrapper
@@ -37,6 +56,7 @@ async function apiFetch<T>(
   const shouldCacheGet = method === "GET" && options.cache !== "no-store";
 
   if (shouldCacheGet) {
+    pruneExpiredGetCache();
     const cached = GET_CACHE.get(url);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value as T;
@@ -80,6 +100,7 @@ async function apiFetch<T>(
         expiresAt: Date.now() + GET_CACHE_TTL_MS,
         value: payload,
       });
+      pruneGetCache();
     }
 
     return payload;
