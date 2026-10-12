@@ -14,7 +14,36 @@ if "sentence_transformers" not in sys.modules:
     sentence_transformers.SentenceTransformer = object
     sys.modules["sentence_transformers"] = sentence_transformers
 
+if "motor" not in sys.modules:
+    motor = types.ModuleType("motor")
+    motor_asyncio = types.ModuleType("motor.motor_asyncio")
+    motor_asyncio.AsyncIOMotorClient = object
+    motor.motor_asyncio = motor_asyncio
+    sys.modules["motor"] = motor
+    sys.modules["motor.motor_asyncio"] = motor_asyncio
+
+if "pymongo" not in sys.modules:
+    pymongo = types.ModuleType("pymongo")
+    pymongo.DESCENDING = -1
+    errors = types.ModuleType("pymongo.errors")
+    errors.BulkWriteError = type("BulkWriteError", (Exception,), {})
+    errors.ConnectionFailure = type("ConnectionFailure", (Exception,), {})
+    errors.OperationFailure = type("OperationFailure", (Exception,), {})
+    errors.ServerSelectionTimeoutError = type("ServerSelectionTimeoutError", (Exception,), {})
+    pymongo.errors = errors
+    sys.modules["pymongo"] = pymongo
+    sys.modules["pymongo.errors"] = errors
+
+if "chromadb" not in sys.modules:
+    chromadb = types.ModuleType("chromadb")
+    config = types.ModuleType("chromadb.config")
+    config.Settings = object
+    chromadb.config = config
+    sys.modules["chromadb"] = chromadb
+    sys.modules["chromadb.config"] = config
+
 from backend.services.memory_optimizer import MemoryOptimizer
+from backend.services.pattern_extractor import PatternExtractor
 
 
 async def _run_cache_expiry_checks() -> None:
@@ -44,3 +73,20 @@ async def _run_cache_expiry_checks() -> None:
 
 def test_cache_ttl_refreshes_on_hot_access() -> None:
     asyncio.run(_run_cache_expiry_checks())
+
+
+def test_keyword_extraction_cache_reuses_results() -> None:
+    extractor = PatternExtractor(memory_service=Mock())
+    resume = """
+    Summary: Led a cross-functional engineering team to reduce latency by 40% and
+    deliver customer-facing features for 10,000+ users.
+
+    - Built API services and improved release quality.
+    - Managed stakeholder communication and technical design.
+    """
+
+    first = extractor.extract_keywords(resume, 90.0, top_n=5)
+    second = extractor.extract_keywords(resume, 90.0, top_n=5)
+
+    assert first == second
+    assert len(extractor._keyword_cache) == 1

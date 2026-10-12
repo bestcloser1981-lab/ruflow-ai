@@ -18,7 +18,8 @@ import asyncio
 import logging
 import math
 import re
-from collections import Counter
+from collections import Counter, OrderedDict
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -181,11 +182,14 @@ class PatternExtractor:
         high_score_threshold: float = 75.0,
         max_keyword_length:   int   = 4,
         min_keyword_freq:     int   = 2,
+        keyword_cache_size:   int = 256,
     ) -> None:
         self._memory              = memory_service or get_memory_service()
         self._high_score          = high_score_threshold
         self._max_kw_length       = max_keyword_length
         self._min_freq            = min_keyword_freq
+        self._keyword_cache: OrderedDict[Tuple[str, float, int], List[KeywordPattern]] = OrderedDict()
+        self._keyword_cache_size  = keyword_cache_size
 
     # ------------------------------------------------------------------
     # Public synchronous extraction methods
@@ -217,6 +221,12 @@ class PatternExtractor:
         """
         if not resume or not resume.strip():
             return []
+
+        cache_key = (resume.strip(), round(score, 2), top_n)
+        cached = self._keyword_cache.get(cache_key)
+        if cached is not None:
+            self._keyword_cache.move_to_end(cache_key)
+            return deepcopy(cached)
 
         score_weight = max(0.1, score / 100.0)
         text         = re.sub(r"[^\w\s\-/+#.]", " ", resume.lower())
@@ -274,7 +284,14 @@ class PatternExtractor:
 
         # Sort by weighted score
         patterns.sort(key=lambda p: p.avg_score, reverse=True)
-        return patterns[:top_n]
+
+        final_patterns = patterns[:top_n]
+        self._keyword_cache[cache_key] = final_patterns
+        self._keyword_cache.move_to_end(cache_key)
+        while len(self._keyword_cache) > self._keyword_cache_size:
+            self._keyword_cache.popitem(last=False)
+
+        return deepcopy(final_patterns)
 
     def extract_tone_markers(self, text: str) -> TonePattern:
         """
