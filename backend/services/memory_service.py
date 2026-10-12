@@ -95,6 +95,7 @@ class MongoMemoryClient:
         iterations: int,
         resume_snapshot: str,
         cover_snapshot: str,
+        user_id: Optional[str] = None,
         extra_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -108,6 +109,7 @@ class MongoMemoryClient:
             iterations: Number of improvement loops run.
             resume_snapshot: Final tailored resume (Markdown).
             cover_snapshot: Final cover letter (plain text).
+            user_id: The owning user identifier used for scoped history queries.
             extra_meta: Any additional key-value metadata.
 
         Returns:
@@ -117,6 +119,7 @@ class MongoMemoryClient:
 
         doc: Dict[str, Any] = {
             "session_id": session_id,
+            "user_id": (user_id or "").strip(),
             "jd_role": jd_role,
             "company": company,
             "final_scores": dict(final_scores),
@@ -143,6 +146,7 @@ class MongoMemoryClient:
         session_id: Optional[str] = None,
         company: Optional[str] = None,
         jd_role: Optional[str] = None,
+        user_id: Optional[str] = None,
         limit: int = 10,
     ) -> List[PastApplication]:
         """
@@ -155,6 +159,7 @@ class MongoMemoryClient:
             session_id: Filter by exact session ID.
             company: Filter by company name (case-insensitive).
             jd_role: Filter by role title (case-insensitive).
+            user_id: Filter by the owning user identifier.
             limit: Maximum number of records to return.
 
         Returns:
@@ -169,6 +174,8 @@ class MongoMemoryClient:
             query["company"] = {"$regex": company, "$options": "i"}
         if jd_role:
             query["jd_role"] = {"$regex": jd_role, "$options": "i"}
+        if user_id:
+            query["user_id"] = str(user_id).strip()
 
         try:
             cursor = (
@@ -185,6 +192,7 @@ class MongoMemoryClient:
         for doc in docs:
             results.append(
                 PastApplication(
+                    user_id=doc.get("user_id", ""),
                     session_id=doc.get("session_id", ""),
                     jd_role=doc.get("jd_role", ""),
                     company=doc.get("company", ""),
@@ -478,6 +486,7 @@ class MemoryService:
         iterations: int,
         resume_snapshot: str,
         cover_snapshot: str,
+        user_id: Optional[str] = None,
         resume_embedding: Optional[List[float]] = None,
         jd_embedding: Optional[List[float]] = None,
         extra_meta: Optional[Dict[str, Any]] = None,
@@ -496,6 +505,7 @@ class MemoryService:
             iterations=iterations,
             resume_snapshot=resume_snapshot,
             cover_snapshot=cover_snapshot,
+            user_id=user_id,
             extra_meta=extra_meta,
         )
 
@@ -520,6 +530,7 @@ class MemoryService:
         session_id: Optional[str] = None,
         company: Optional[str] = None,
         jd_role: Optional[str] = None,
+        user_id: Optional[str] = None,
         limit: int = 10,
     ) -> List[PastApplication]:
         """Delegate to MongoMemoryClient.retrieve_past_applications()."""
@@ -527,6 +538,7 @@ class MemoryService:
             session_id=session_id,
             company=company,
             jd_role=jd_role,
+            user_id=user_id,
             limit=limit,
         )
 
