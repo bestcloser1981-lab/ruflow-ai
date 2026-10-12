@@ -9,6 +9,10 @@ import type {
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
 
+const GET_CACHE_TTL_MS = 5_000;
+const GET_CACHE = new Map<string, { expiresAt: number; value: unknown }>();
+const IN_FLIGHT_GETS = new Map<string, Promise<unknown>>();
+
 // ---------------------------------------------------------------------------
 // Generic fetch wrapper
 // ---------------------------------------------------------------------------
@@ -29,32 +33,69 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
+  const method = (options.method ?? "GET").toUpperCase();
+  const shouldCacheGet = method === "GET" && options.cache !== "no-store";
 
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...options.headers,
-    },
-    ...options,
-  });
-
-  if (!res.ok) {
-    let detail: string | undefined;
-    try {
-      const body = await res.json();
-      detail = body?.detail ?? JSON.stringify(body);
-    } catch {
-      detail = await res.text().catch(() => undefined);
+  if (shouldCacheGet) {
+    const cached = GET_CACHE.get(url);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as T;
     }
-    throw new ApiError(
-      res.status,
-      `API request failed: ${res.status} ${res.statusText}`,
-      detail
-    );
+
+    const inflight = IN_FLIGHT_GETS.get(url);
+    if (inflight) {
+      return inflight as Promise<T>;
+    }
   }
 
-  return res.json() as Promise<T>;
+  const request = (async (): Promise<T> => {
+    const res = await fetch(url, {
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...options.headers,
+      },
+      ...options,
+    });
+
+    if (!res.ok) {
+      let detail: string | undefined;
+      try {
+        const body = await res.json();
+        detail = body?.detail ?? JSON.stringify(body);
+      } catch {
+        detail = await res.text().catch(() => undefined);
+      }
+      throw new ApiError(
+        res.status,
+        `API request failed: ${res.status} ${res.statusText}`,
+        detail
+      );
+    }
+
+    const payload = (await res.json()) as T;
+
+    if (shouldCacheGet) {
+      GET_CACHE.set(url, {
+        expiresAt: Date.now() + GET_CACHE_TTL_MS,
+        value: payload,
+      });
+    }
+
+    return payload;
+  })();
+
+  if (shouldCacheGet) {
+    IN_FLIGHT_GETS.set(url, request as Promise<unknown>);
+  }
+
+  try {
+    return await request;
+  } finally {
+    if (shouldCacheGet) {
+      IN_FLIGHT_GETS.delete(url);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
