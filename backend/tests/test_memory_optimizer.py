@@ -90,3 +90,24 @@ def test_keyword_extraction_cache_reuses_results() -> None:
 
     assert first == second
     assert len(extractor._keyword_cache) == 1
+
+
+def test_tone_and_structure_analysis_cache_reuses_results() -> None:
+    extractor = PatternExtractor(memory_service=Mock())
+    resume = """
+    Summary: Led a cross-functional product team that reduced latency by 40% and
+    shipped 3 new APIs serving 10,000+ customers.
+
+    - Architected resilient services and improved release quality.
+    - Mentored engineers and partnered with stakeholders.
+    """
+
+    first_tone = extractor.extract_tone_markers(resume)
+    second_tone = extractor.extract_tone_markers(resume)
+    assert first_tone == second_tone
+    assert len(extractor._tone_cache) == 1
+
+    first_structure = extractor.extract_structure_patterns(resume)
+    second_structure = extractor.extract_structure_patterns(resume)
+    assert first_structure == second_structure
+    assert len(extractor._structure_cache) == 1

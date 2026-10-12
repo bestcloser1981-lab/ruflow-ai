@@ -189,6 +189,8 @@ class PatternExtractor:
         self._max_kw_length       = max_keyword_length
         self._min_freq            = min_keyword_freq
         self._keyword_cache: OrderedDict[Tuple[str, float, int], List[KeywordPattern]] = OrderedDict()
+        self._tone_cache: OrderedDict[str, TonePattern] = OrderedDict()
+        self._structure_cache: OrderedDict[str, StructurePattern] = OrderedDict()
         self._keyword_cache_size  = keyword_cache_size
 
     # ------------------------------------------------------------------
@@ -313,6 +315,12 @@ class PatternExtractor:
         if not text:
             return TonePattern([], [], [], 0, 0.0)
 
+        text_key = text.strip()
+        cached = self._tone_cache.get(text_key)
+        if cached is not None:
+            self._tone_cache.move_to_end(text_key)
+            return deepcopy(cached)
+
         # Action verbs
         action_verb_matches = _ACTION_VERB_RE.findall(text)
         verb_counter        = Counter(v.lower() for v in action_verb_matches)
@@ -344,13 +352,19 @@ class PatternExtractor:
         else:
             avg_sentence_len = 0.0
 
-        return TonePattern(
+        result = TonePattern(
             action_verbs        = action_verbs,
             quantifier_phrases  = quantifier_phrases,
             leadership_markers  = leadership_markers,
             passive_voice_count = passive_count,
             avg_sentence_length = avg_sentence_len,
         )
+        self._tone_cache[text_key] = result
+        self._tone_cache.move_to_end(text_key)
+        while len(self._tone_cache) > self._keyword_cache_size:
+            self._tone_cache.popitem(last=False)
+
+        return deepcopy(result)
 
     def extract_structure_patterns(self, resume: str) -> StructurePattern:
         """
@@ -371,6 +385,12 @@ class PatternExtractor:
         """
         if not resume:
             return StructurePattern(0, 0, 0.0, 0, False, False, 0, 0.0)
+
+        resume_key = resume.strip()
+        cached = self._structure_cache.get(resume_key)
+        if cached is not None:
+            self._structure_cache.move_to_end(resume_key)
+            return deepcopy(cached)
 
         bullets = _BULLET_RE.findall(resume)
         bullet_count = len(bullets)
@@ -393,7 +413,7 @@ class PatternExtractor:
             round(quantified_count / bullet_count, 3) if bullet_count > 0 else 0.0
         )
 
-        return StructurePattern(
+        result = StructurePattern(
             bullet_count        = bullet_count,
             quantified_bullets  = quantified_count,
             avg_bullet_length   = avg_bullet_len,
@@ -403,6 +423,12 @@ class PatternExtractor:
             total_word_count    = word_count,
             quantification_rate = quantification_rate,
         )
+        self._structure_cache[resume_key] = result
+        self._structure_cache.move_to_end(resume_key)
+        while len(self._structure_cache) > self._keyword_cache_size:
+            self._structure_cache.popitem(last=False)
+
+        return deepcopy(result)
 
     # ------------------------------------------------------------------
     # Async DB methods
